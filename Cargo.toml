@@ -8,6 +8,10 @@ version = "1.0.0"
 authors = ["Kaarel Allemann <kaarelallemann@gmail.com>"]
 edition = "2018"
 license-file = "LICENSE"
+include = [
+    "**/*.rs",
+    "Cargo.toml",
+]
 keywords = ["geography", "trilateration", "multilateration"]
 
 [dependencies]
