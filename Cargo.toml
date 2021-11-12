@@ -1,0 +1,15 @@
+[package]
+name = "multilateration"
+description = "Library for performing a multilateration operation"
+repository = "https://github.com/ebakoba/multilateration"
+documentation = "https://docs.rs/multilateration"
+readme = "README.md"
+version = "1.0.0"
+authors = ["Kaarel Allemann <kaarelallemann@gmail.com>"]
+edition = "2018"
+license-file = "LICENSE"
+keywords = ["geography", "trilateration", "multilateration"]
+
+[dependencies]
+anyhow = "1"
+mathru = "0.10"
