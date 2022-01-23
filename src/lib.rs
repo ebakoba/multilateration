@@ -21,6 +21,7 @@
 //!
 //!   ```
 //!   use multilateration::{multilaterate, Measurement, Point};
+//!   use anyhow::{Result};
 //!
 //!   fn main() -> Result<()> {
 //!     let measurements = vec![
@@ -44,9 +45,10 @@
 //! # Error conditions
 //!
 //! - Points have different dimensions
-//! 
+//!
 //! ```
 //!   use multilateration::{multilaterate, Measurement, Point};
+//!   use anyhow::{Result};  
 //!
 //!   fn main() -> Result<()> {
 //!     let measurements = vec![
@@ -65,9 +67,10 @@
 //!   Result is: Err(All points must have the same dimensions)
 //!   ```
 //! - Points have no dimensions
-//! 
+//!
 //! ```
 //!   use multilateration::{multilaterate, Measurement, Point};
+//!   use anyhow::{Result};
 //!
 //!   fn main() -> Result<()> {
 //!     let measurements = vec![
@@ -86,14 +89,10 @@
 //!   Result is: Err(Points must contain at least one dimension)
 //!   ```
 
-
-use mathru::optimization::{
-    LevenbergMarquardt,
-    Optim
-};
-use mathru::algebra::linear::vector::vector::Vector;
+use anyhow::{anyhow, bail, Result};
 use mathru::algebra::linear::matrix::matrix::Matrix;
-use anyhow::{Result, anyhow, bail};
+use mathru::algebra::linear::vector::vector::Vector;
+use mathru::optimization::{LevenbergMarquardt, Optim};
 
 struct MultilaterationFunction {
     measurements: Vec<Measurement>,
@@ -101,9 +100,7 @@ struct MultilaterationFunction {
 
 impl MultilaterationFunction {
     pub fn new(measurements: Vec<Measurement>) -> MultilaterationFunction {
-        MultilaterationFunction{
-            measurements,
-        }
+        MultilaterationFunction { measurements }
     }
 
     pub fn estimate_intial_point(&self) -> Point {
@@ -113,8 +110,7 @@ impl MultilaterationFunction {
         let mut initial_position = vec![0f64; position_dimensions];
         for i in 0..number_of_measurements {
             for j in 0..position_dimensions {
-                initial_position[j] = self
-                    .measurements[i].point.0[j];
+                initial_position[j] = self.measurements[i].point.0[j];
             }
         }
         for i in 0..position_dimensions {
@@ -132,12 +128,7 @@ impl Optim<f64> for MultilaterationFunction {
         for i in 0..self.measurements.len() {
             result[i] = 0f64;
             for j in 0..input.clone().convert_to_vec().len() {
-                result[i] +=
-                    f64::powf(
-                        *input.get(j) -
-                        self.measurements[i].point.0[j],
-                    2f64
-                );
+                result[i] += f64::powf(*input.get(j) - self.measurements[i].point.0[j], 2f64);
             }
             result[i] -= f64::powf(self.measurements[i].distance, 2f64);
         }
@@ -147,21 +138,13 @@ impl Optim<f64> for MultilaterationFunction {
 
     fn jacobian(&self, input: &Vector<f64>) -> Matrix<f64> {
         let input_length = input.clone().convert_to_vec().len();
-        let data = vec![
-            0f64;
-            self.measurements.len() * input_length
-        ];
-        let mut matrix = Matrix::new(
-            self.measurements.len(),
-            input_length,
-            data
-        );
+        let data = vec![0f64; self.measurements.len() * input_length];
+        let mut matrix = Matrix::new(self.measurements.len(), input_length, data);
 
         for i in 0..self.measurements.len() {
             for j in 0..input_length {
                 *matrix.get_mut(i, j) =
-                    2f64 * input.get(j) - 
-                    2f64 * self.measurements[i].point.0[j];
+                    2f64 * input.get(j) - 2f64 * self.measurements[i].point.0[j];
             }
         }
 
@@ -175,22 +158,28 @@ pub struct Point(pub Vec<f64>);
 #[derive(Debug)]
 pub struct Measurement {
     point: Point,
-    distance: f64
+    distance: f64,
 }
 
 impl Measurement {
     pub fn new(point: Point, distance: f64) -> Measurement {
-        Measurement {
-            point,
-            distance
-        }
+        Measurement { point, distance }
     }
 }
 
 fn validate_measurements(measurements: &[Measurement]) -> Result<()> {
-    let point_dimensions: Vec<usize> = measurements.iter().map(|measurement| measurement.point.0.len()).collect();
-    let min_length = *point_dimensions.iter().min().ok_or(anyhow!("Failed to calculate minimal dimension"))?;
-    let max_length = *point_dimensions.iter().max().ok_or(anyhow!("Failed to calculate maximal dimension"))?;
+    let point_dimensions: Vec<usize> = measurements
+        .iter()
+        .map(|measurement| measurement.point.0.len())
+        .collect();
+    let min_length = *point_dimensions
+        .iter()
+        .min()
+        .ok_or(anyhow!("Failed to calculate minimal dimension"))?;
+    let max_length = *point_dimensions
+        .iter()
+        .max()
+        .ok_or(anyhow!("Failed to calculate maximal dimension"))?;
 
     if min_length != max_length {
         bail!("All points must have the same dimensions");
@@ -201,35 +190,28 @@ fn validate_measurements(measurements: &[Measurement]) -> Result<()> {
     Ok(())
 }
 
-pub fn multilaterate(
-    measurements: Vec<Measurement>
-) -> Result<Point> {
+pub fn multilaterate(measurements: Vec<Measurement>) -> Result<Point> {
     validate_measurements(&measurements)?;
     let multilateration_function = MultilaterationFunction::new(measurements);
     let optimization = LevenbergMarquardt::new(1000, -1f64, 1f64);
     let initial_point = multilateration_function.estimate_intial_point();
-    let result = optimization.minimize(
-        &multilateration_function,
-        &Vector::new_column(
-            initial_point.0.len(),
-            initial_point.0
+    let result = optimization
+        .minimize(
+            &multilateration_function,
+            &Vector::new_column(initial_point.0.len(), initial_point.0),
         )
-    ).map_err(|_| anyhow!("Failed to calculate a result"))?;
+        .map_err(|_| anyhow!("Failed to calculate a result"))?;
 
     Ok(Point(result.arg().convert_to_vec()))
 }
 
 #[cfg(test)]
 mod tests {
-    use super::Point;
-    use super::Measurement;
     use super::multilaterate;
+    use super::Measurement;
+    use super::Point;
 
-    fn is_in_delta(
-        delta: f64,
-        value: f64,
-        comparison: f64
-    ) -> bool {
+    fn is_in_delta(delta: f64, value: f64, comparison: f64) -> bool {
         value >= (comparison - delta) && value <= (comparison + delta)
     }
 
@@ -238,19 +220,19 @@ mod tests {
         let measurements = vec![
             Measurement {
                 point: Point(vec![5.0, -6.0]),
-                distance: 8.06
+                distance: 8.06,
             },
             Measurement {
                 point: Point(vec![13.0, -15.0]),
-                distance: 13.97
+                distance: 13.97,
             },
             Measurement {
                 point: Point(vec![21.0, -3.0]),
-                distance: 23.32
+                distance: 23.32,
             },
             Measurement {
                 point: Point(vec![12.4, -21.2]),
-                distance: 15.31
+                distance: 15.31,
             },
         ];
 
@@ -266,16 +248,16 @@ mod tests {
         let measurements = vec![
             Measurement {
                 point: Point(vec![1.0, 1.0]),
-                distance: 0.5
+                distance: 0.5,
             },
             Measurement {
                 point: Point(vec![3.0, 1.0]),
-                distance: 0.5
+                distance: 0.5,
             },
             Measurement {
                 point: Point(vec![2.0, 2.0]),
-                distance: 0.5
-            }
+                distance: 0.5,
+            },
         ];
 
         let result = multilaterate(measurements).unwrap().0;
@@ -290,16 +272,16 @@ mod tests {
         let measurements = vec![
             Measurement {
                 point: Point(vec![1.0, 1.0]),
-                distance: 2.0
+                distance: 2.0,
             },
             Measurement {
                 point: Point(vec![3.0, 1.0]),
-                distance: 2.0
+                distance: 2.0,
             },
             Measurement {
                 point: Point(vec![2.0, 2.0]),
-                distance: 2.0
-            }
+                distance: 2.0,
+            },
         ];
 
         let result = multilaterate(measurements).unwrap().0;
@@ -314,16 +296,16 @@ mod tests {
         let measurements = vec![
             Measurement {
                 point: Point(vec![1.0, 1.0]),
-                distance: 1.0
+                distance: 1.0,
             },
             Measurement {
                 point: Point(vec![1.0, 1.0]),
-                distance: 1.0
+                distance: 1.0,
             },
             Measurement {
                 point: Point(vec![3.0, 1.0]),
-                distance: 1.0
-            }
+                distance: 1.0,
+            },
         ];
 
         let result = multilaterate(measurements).unwrap().0;
@@ -338,12 +320,12 @@ mod tests {
         let measurements = vec![
             Measurement {
                 point: Point(vec![1.0, 1.0]),
-                distance: 1.0
+                distance: 1.0,
             },
             Measurement {
                 point: Point(vec![3.0, 1.0]),
-                distance: 1.0
-            }
+                distance: 1.0,
+            },
         ];
 
         let result = multilaterate(measurements).unwrap().0;
@@ -358,16 +340,16 @@ mod tests {
         let measurements = vec![
             Measurement {
                 point: Point(vec![1.0, 1.0]),
-                distance: 0.9
+                distance: 0.9,
             },
             Measurement {
                 point: Point(vec![3.0, 1.0]),
-                distance: 1.0
+                distance: 1.0,
             },
             Measurement {
                 point: Point(vec![2.0, 2.0]),
-                distance: 1.0
-            }
+                distance: 1.0,
+            },
         ];
 
         let result = multilaterate(measurements).unwrap().0;
@@ -382,16 +364,16 @@ mod tests {
         let measurements = vec![
             Measurement {
                 point: Point(vec![1.0, 1.0, 1.0]),
-                distance: 1.0
+                distance: 1.0,
             },
             Measurement {
                 point: Point(vec![3.0, 1.0, 1.0]),
-                distance: 1.0
+                distance: 1.0,
             },
             Measurement {
                 point: Point(vec![2.0, 2.0, 1.0]),
-                distance: 1.0
-            }
+                distance: 1.0,
+            },
         ];
 
         let result = multilaterate(measurements).unwrap().0;
@@ -406,17 +388,17 @@ mod tests {
     fn multilat_fails_on_different_dimension() {
         let measurements = vec![
             Measurement {
-                point: Point(vec![1.0, 1.0 ]),
-                distance: 1.0
+                point: Point(vec![1.0, 1.0]),
+                distance: 1.0,
             },
             Measurement {
                 point: Point(vec![3.0, 1.0, 1.0]),
-                distance: 1.0
+                distance: 1.0,
             },
             Measurement {
                 point: Point(vec![2.0, 1.0]),
-                distance: 1.0
-            }
+                distance: 1.0,
+            },
         ];
 
         let result = multilaterate(measurements);
@@ -428,16 +410,16 @@ mod tests {
         let measurements = vec![
             Measurement {
                 point: Point(vec![]),
-                distance: 1.0
+                distance: 1.0,
             },
             Measurement {
                 point: Point(vec![]),
-                distance: 1.0
+                distance: 1.0,
             },
             Measurement {
                 point: Point(vec![]),
-                distance: 1.0
-            }
+                distance: 1.0,
+            },
         ];
 
         let result = multilaterate(measurements);
